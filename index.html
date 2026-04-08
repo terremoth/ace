@@ -37,6 +37,14 @@ canvas{display:block;width:100%;height:100%}
 #xhair::before,#xhair::after{content:'';position:absolute;background:rgba(0,255,100,.65);border-radius:1px}
 #xhair::before{width:2px;height:11px;top:0;left:15px}
 #xhair::after{width:11px;height:2px;top:15px;left:10px}
+#xhair-l {
+  position:absolute;
+  width:11px;
+  height:2px;
+  top:15px;
+  left:0;
+  background:rgba(0,255,100,.65);
+}
 #xhair-dot{position:absolute;width:4px;height:4px;border-radius:50%;background:rgba(0,255,100,.8);top:14px;left:14px}
 #xhair-b{position:absolute;width:2px;height:11px;bottom:0;left:15px;background:rgba(0,255,100,.65)}
 #xhair-r{position:absolute;width:11px;height:2px;top:15px;right:0;background:rgba(0,255,100,.65)}
@@ -116,7 +124,12 @@ canvas{display:block;width:100%;height:100%}
     <span class="lbl" data-i18n="hudKills">KILLS</span><br>
     <div class="val val-gold" id="h-kills">0</div>
   </div>
-  <div id="xhair"><div id="xhair-dot"></div><div id="xhair-b"></div><div id="xhair-r"></div></div>
+  <div id="xhair">
+    <div id="xhair-dot"></div>
+    <div id="xhair-b"></div>
+    <div id="xhair-r"></div>
+    <div id="xhair-l"></div> <!-- NOVO -->
+  </div>
 </div>
 <div id="vignette"></div>
 <div id="announce"></div>
@@ -205,7 +218,13 @@ const CFG = {
   },
   textures:{
     ground: null,      // 'textures/ground.jpg'
-    skybox: null,      // ['sky/px.jpg','sky/nx.jpg','sky/py.jpg','sky/ny.jpg','sky/pz.jpg','sky/nz.jpg']
+    // ── SKYBOX: descomente e ajuste a linha abaixo com seus arquivos ───────
+    // Os 6 arquivos px/nx/py/ny/pz/nz devem estar na mesma pasta do HTML.
+    // Ordem obrigatória Three.js: [+X, -X, +Y, -Y, +Z, -Z]
+    //skybox: null,      // ['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg']
+    skybox: ['px.png', 'nx.png', 'py.png', 'ny.png', 'pz.png', 'nz.png']
+
+    // Para .png troque cada extensão:  ['px.png','nx.png','py.png','ny.png','pz.png','nz.png']
   },
   models:{
     player: null, enemy: null, treePine: null, treeOak: null, treePalm: null,
@@ -369,8 +388,8 @@ const CHUNK_W    = 225;
 const CHUNK_SEG  = 25;
 const VIEW_R     = 4;
 const MAX_HILL   = 80;
-const FOG_NEAR   = 680;
-const FOG_FAR    = 1800;
+const FOG_NEAR   = 680;   // usado apenas para distância de spawn de inimigos
+const FOG_FAR    = 1800;  // usado apenas para despawn de inimigos
 const SAFE_ALT   = 165;
 const SPD_IDLE   = 50;   // m/s start speed (~180 km/h)
 const SPD_MIN    = 0;    // can slow to 0
@@ -494,14 +513,31 @@ renderer.shadowMap.enabled=true;
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputEncoding=THREE.sRGBEncoding;
 const scene=new THREE.Scene();
-scene.fog=new THREE.Fog(0x7ab0cc,FOG_NEAR,FOG_FAR);
+
+// ── FOG ATMOSFÉRICO ──────────────────────────────────────────────────────────
+// FogExp2 cria um haze gradual no horizonte igual ao céu real.
+// Objetos próximos ficam nítidos; o horizonte desaparece suavemente.
+//   Mais neblina : aumente FOG_DENSITY (ex: 0.0014)
+//   Menos neblina: diminua  FOG_DENSITY (ex: 0.0005)
+const FOG_COLOR   = 0x8ab8d0;   // cor da névoa — combine com o skybox
+const FOG_DENSITY = 0.0014;    // ← ajuste aqui para mais ou menos neblina
+scene.fog = new THREE.FogExp2(FOG_COLOR, FOG_DENSITY);
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── CÉU / SKYBOX ─────────────────────────────────────────────────────────────
+// Para usar seu cubemap coloque os 6 arquivos na mesma pasta do HTML e use:
+//   skybox: ['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg']
+// Ordem do Three.js CubeTextureLoader: +X, -X, +Y, -Y, +Z, -Z
+// Seus arquivos (px/nx/py/ny/pz/nz) já estão nessa ordem exata — use assim.
+// Se extensão diferente de .jpg (ex: .png) ajuste cada nome individualmente.
+// ─────────────────────────────────────────────────────────────────────────────
 if(CFG.textures.skybox&&Array.isArray(CFG.textures.skybox)){
   scene.background=new THREE.CubeTextureLoader().load(CFG.textures.skybox);
 }else{
   scene.background=new THREE.Color(0x5a8fc0);
 }
 // FOV reduced to 58° to minimize perspective distortion on edges
-const camera=new THREE.PerspectiveCamera(58,innerWidth/innerHeight,.15,3200);
+const camera=new THREE.PerspectiveCamera(58,innerWidth/innerHeight,.15,1800);
 scene.add(camera);
 
 // Sun — fixed distant point, upper diagonal right (like a real sun at infinity)
@@ -574,7 +610,7 @@ function removeChunk(cx,cz){
 }
 function refreshChunks(px,pz){
   const cx0=Math.floor(px/CHUNK_W),cz0=Math.floor(pz/CHUNK_W);
-  for(let dx=-VIEW_R;dx<=VIEW_R;dx++)for(let dz=-VIEW_R;dz<=VIEW_R;dz++)buildChunk(cx0+dx,cz0+dz);
+  for(let dx=-VIEW_R-1;dx<=VIEW_R+1;dx++)for(let dz=-VIEW_R;dz<=VIEW_R;dz++)buildChunk(cx0+dx,cz0+dz);
   for(const[id]of chunkMap){const[cx,cz]=id.split(',').map(Number);if(Math.abs(cx-cx0)>VIEW_R+1||Math.abs(cz-cz0)>VIEW_R+1)removeChunk(cx,cz);}
 }
 
@@ -679,16 +715,44 @@ function initClouds(){
 }
 function updateClouds(dt){
   if(!plrMesh)return;
+
   cloudObjs.forEach(c=>{
-    c.position.x+=WIND_X*WIND_SPD*dt;
-    c.position.z+=WIND_Z*WIND_SPD*dt;
-    // If cloud drifts too far from player in any direction, wrap to opposite side
-    const dx=c.position.x-plrMesh.position.x;
-    const dz=c.position.z-plrMesh.position.z;
-    if(dx >  CLOUD_RANGE) c.position.x=plrMesh.position.x-CLOUD_RANGE+(Math.random()-0.5)*80;
-    if(dx < -CLOUD_RANGE) c.position.x=plrMesh.position.x+CLOUD_RANGE+(Math.random()-0.5)*80;
-    if(dz >  CLOUD_RANGE) c.position.z=plrMesh.position.z-CLOUD_RANGE+(Math.random()-0.5)*80;
-    if(dz < -CLOUD_RANGE) c.position.z=plrMesh.position.z+CLOUD_RANGE+(Math.random()-0.5)*80;
+    c.position.x += WIND_X * WIND_SPD * dt;
+    c.position.z += WIND_Z * WIND_SPD * dt;
+
+    const dx = c.position.x - plrMesh.position.x;
+    const dz = c.position.z - plrMesh.position.z;
+
+    const dist = Math.sqrt(dx*dx + dz*dz);
+
+    // Fade zone
+    const fadeStart = CLOUD_RANGE * 0.65;
+    const fadeEnd   = CLOUD_RANGE;
+
+    let alpha = 1;
+
+    if(dist > fadeStart){
+      alpha = 1 - ((dist - fadeStart) / (fadeEnd - fadeStart));
+    }
+
+    alpha = Math.max(0, Math.min(1, alpha));
+
+    c.traverse(o=>{
+      if(o.material){
+        o.material.opacity = 0.65 * alpha;
+      }
+    });
+
+    // Respawn in circular perimeter
+    if(dist > CLOUD_RANGE){
+      const angle = Math.random() * Math.PI * 2;
+      const spawnDist = CLOUD_RANGE;
+
+      c.position.x = plrMesh.position.x + Math.cos(angle) * spawnDist;
+      c.position.z = plrMesh.position.z + Math.sin(angle) * spawnDist;
+
+      c.position.y = 110 + Math.random() * 90;
+    }
   });
 }
 
@@ -838,9 +902,8 @@ const _camLook=new THREE.Vector3();
 function lvlMaxAmmo(l){return INIT_AMMO+(l-1)*10;}
 function lvlReq(l){return 5+Math.floor((l-1)*1.6);}
 function lvlEnemyHP(l){return 1+Math.floor((l-1)/10);}
-function lvlEnemySpd(l){return Math.min(88,35+(l-1)*1.8);}  // level 1=35m/s, scales up
+function lvlEnemySpd(l){return Math.min(88,35+(l-1)*1.8);}
 function lvlEnemyShotI(l){return Math.max(1.0,5.5-(l-1)*.14);}
-function lvlMaxOnScreen(l){return Math.min(5+Math.floor((l-1)/2),10);}
 
 // ── PLAYER INIT ───────────────────────────────────────
 function initPlayer(){
@@ -880,60 +943,112 @@ function spawnEnemy(){
 const _tv=new THREE.Vector3();
 function updateEnemies(dt){
   for(let i=enemies.length-1;i>=0;i--){
-    const e=enemies[i],m=e.mesh;
-    e.wandT-=dt;
-    if(e.wandT<=0){e.wandA+=(Math.random()-.5)*.8;e.wandT=1.2+Math.random()*1.8;}
 
-    _tv.subVectors(plrMesh.position,m.position);
-    const dist=_tv.length();
-    if(dist>FOG_FAR*1.4){scene.remove(m);enemies.splice(i,1);continue;}
+    const e = enemies[i];
+    const m = e.mesh;
 
-    const toPlr=_tv.clone().normalize();
-    let dir;
-
-    if(dist<200){
-      // Active pursuit: smoothly steer toward player
-      const curFwd=new THREE.Vector3(1,0,0).applyQuaternion(m.quaternion);
-      const desired=toPlr.clone();
-      dir=curFwd.lerp(desired,Math.min(1,dt*2.2)).normalize();
-      const targetYaw=Math.atan2(dir.z,dir.x);
-      m.rotation.y += (targetYaw - m.rotation.y)*0.08;
-      // m.lookAt(m.position.clone().add(dir));
-      m.position.addScaledVector(dir,e.spd*dt);
-    }else if(dist<500){
-      // Approach: move toward player with slight wander
-      dir=toPlr.clone();
-      dir.x+=Math.cos(e.wandA)*.18;dir.z+=Math.sin(e.wandA)*.18;dir.normalize();
-      const targetYaw=Math.atan2(dir.z,dir.x);
-      m.rotation.y += (targetYaw - m.rotation.y)*0.08;
-      // m.lookAt(m.position.clone().add(dir));
-      m.position.addScaledVector(dir,e.spd*dt);
-    }else{
-      // Patrol: wander slowly drifting toward player area
-      dir=new THREE.Vector3(Math.cos(e.wandA),0,Math.sin(e.wandA));
-      dir.lerp(toPlr,.12).normalize();
-      const targetYaw=Math.atan2(dir.z,dir.x);
-      m.rotation.y += (targetYaw - m.rotation.y)*0.08;
-      // m.lookAt(m.position.clone().add(dir));
-      m.position.addScaledVector(dir,e.spd*.55*dt);
+    e.wandT -= dt;
+    if(e.wandT <= 0){
+      e.wandA += (Math.random() - .5) * .8;
+      e.wandT = 1.2 + Math.random() * 1.8;
     }
 
-    // Keep enemy above ground
-    const gh=terrH(m.position.x,m.position.z);
-    if(m.position.y<gh+18)m.position.y+=12*dt;
-    else if(m.position.y>gh+160)m.position.y-=6*dt;
+    _tv.subVectors(plrMesh.position, m.position);
+    const dist = _tv.length();
 
-    // Spin propeller
-    if(m.userData.propPivot)m.userData.propPivot.rotation.x+=9*dt;
+    if(dist > FOG_FAR * 1.1){
+      scene.remove(m);
+      enemies.splice(i,1);
+      continue;
+    }
 
-    // Shoot — ONLY if facing player within 40°
-    e.shotT-=dt;
-    if(e.shotT<=0){
-      const eFwd=new THREE.Vector3(1,0,0).applyQuaternion(m.quaternion);
-      if(eFwd.dot(toPlr)>0.65&&dist<FOG_NEAR*.9){
-        e.shotT=e.shotI;fireEnemyBullet(m);
+    const toPlr = _tv.clone().normalize();
+
+    // PLAYER COLLISION
+    if(m.position.distanceTo(plrMesh.position) < 6.5){
+      spawnExplosion(m.position.clone(), true);
+      spawnExplosion(plrMesh.position.clone(), true);
+
+      playSound('explosion');
+
+      scene.remove(m);
+      enemies.splice(i,1);
+
+      plrMesh.visible = false;
+
+      gHP = 0;
+      startDying();
+      return;
+    }
+
+    // TARGET ANGLE
+    const dx = plrMesh.position.x - m.position.x;
+    const dz = plrMesh.position.z - m.position.z;
+
+    let targetYaw = Math.atan2(dz, dx);
+
+    // slight wander when far
+    if(dist > 400){
+      targetYaw += Math.sin(e.wandA) * 0.35;
+    }
+
+    let delta = targetYaw - m.rotation.y;
+
+    while(delta > Math.PI) delta -= Math.PI * 2;
+    while(delta < -Math.PI) delta += Math.PI * 2;
+
+    // TURN RATE BY DISTANCE
+    let turnRate = 0.45;
+    if(dist < 260) turnRate = 1.25;
+    else if(dist < 500) turnRate = 0.75;
+
+    m.rotation.y += delta * dt * turnRate;
+
+    // FIX PITCH
+    m.rotation.x = 0;
+
+    // BANK
+    const bankStrength = dist < 260 ? 0.9 : 0.45;
+    const bankTarget = -Math.max(-1, Math.min(1, delta)) * bankStrength;
+    m.rotation.z += (bankTarget - m.rotation.z) * dt * 3;
+
+    // MOVE EXACTLY IN NOSE DIRECTION
+    const dir = new THREE.Vector3(
+      Math.cos(m.rotation.y),
+      0,
+      Math.sin(m.rotation.y)
+    ).normalize();
+
+    let moveSpd = e.spd;
+    if(dist > 500) moveSpd *= 0.55;
+
+    m.position.addScaledVector(dir, moveSpd * dt);
+
+    // ALTITUDE CONTROL
+    const gh = terrH(m.position.x, m.position.z);
+
+    if(m.position.y < gh + 18){
+      m.position.y += 12 * dt;
+    }else if(m.position.y > gh + 160){
+      m.position.y -= 6 * dt;
+    }
+
+    // PROPELLER
+    if(m.userData.propPivot){
+      m.userData.propPivot.rotation.x += 9 * dt;
+    }
+
+    // SHOOTING
+    e.shotT -= dt;
+
+    if(e.shotT <= 0){
+      const eFwd = new THREE.Vector3(1,0,0).applyQuaternion(m.quaternion);
+
+      if(eFwd.dot(toPlr) > 0.55 && dist < FOG_NEAR){
+        fireEnemyBullet(m);
+        e.shotT = 0.75;
       }else{
-        e.shotT=.5; // retry soon
+        e.shotT = 0.25;
       }
     }
   }
@@ -1219,6 +1334,20 @@ function updateHUD(){
   document.getElementById('cam-ind').textContent=T(gCam==='1st'?'cam1':'cam3');
 }
 
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  SPAWN TUNING — ajuste esses valores para mais/menos inimigos ║
+// ╠══════════════════════════════════════════════════════════════╣
+// ║  SPAWN_INTERVAL_BASE : segundos entre cada spawn (base)      ║
+// ║  Menos = mais agressivo.  Recomendado: 0.5 ~ 2.0            ║
+// ║  SPAWN_INTERVAL_MIN  : intervalo mínimo independente do nível ║
+// ║  MAX_ON_SCREEN_BASE  : máx inimigos visíveis no level 1      ║
+// ║  MAX_ON_SCREEN_CAP   : teto absoluto (qualquer level)        ║
+// ╚══════════════════════════════════════════════════════════════╝
+const SPAWN_INTERVAL_BASE = 1.2;  // segundos — diminua para mais inimigos
+const SPAWN_INTERVAL_MIN  = 0.4;  // piso absoluto de intervalo
+const MAX_ON_SCREEN_BASE  = 8;    // inimigos simultâneos no level 1
+const MAX_ON_SCREEN_CAP   = 22;   // teto absoluto em levels altos
+
 // ── LEVEL SYSTEM ──────────────────────────────────────
 function startLevel(lvl){
   gLevel=lvl;gLvlKills=0;gLvlReq=lvlReq(lvl);
@@ -1227,10 +1356,26 @@ function startLevel(lvl){
 }
 function updateSpawning(dt){
   if(gLvlDone)return;
-  if((gSpawnT<=0 || enemies.length===0) && gToSpawn>0 && enemies.length<lvlMaxOnScreen(gLevel))
-  // if(gToSpawn<=0&&enemies.length===0&&gLvlKills<gLvlReq){gToSpawn=gLvlReq-gLvlKills;gSpawnT=2;}
+
+  // ── REFILL: se todos os inimigos fugiram (fora do fog) mas ainda
+  //    faltam kills, reabastece gToSpawn para não travar o level ──
+  if(gToSpawn<=0 && enemies.length===0 && gLvlKills<gLvlReq){
+    gToSpawn=gLvlReq-gLvlKills;
+    gSpawnT=1.5;
+  }
+
+  // Timer SEMPRE decrementa — era o bug principal (sem chaves no if anterior)
   gSpawnT-=dt;
-  if(gSpawnT<=0&&gToSpawn>0&&enemies.length<lvlMaxOnScreen(gLevel)){spawnEnemy();gToSpawn--;gSpawnT=Math.max(.6,3.2-(gLevel-1)*.07);}
+
+  // Spawn um inimigo quando o timer zerou e há slot disponível
+  const maxOnScr=Math.min(MAX_ON_SCREEN_BASE+Math.floor((gLevel-1)*1.5), MAX_ON_SCREEN_CAP);
+  if(gSpawnT<=0 && gToSpawn>0 && enemies.length<maxOnScr){
+    spawnEnemy();
+    gToSpawn--;
+    const interval=Math.max(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_BASE-(gLevel-1)*0.04);
+    gSpawnT=interval;
+  }
+
   if(!gLvlDone&&gLvlKills>=gLvlReq){
     gLvlDone=true;const pts=60*gLevel;gScore+=pts;
     showAnnounce(T('lvlDone',{lvl:gLevel,pts}));
